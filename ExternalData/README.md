@@ -7,3 +7,4 @@ This file contains datasets obtained from **external sources (DFT calculation, l
 - **Solvent_Precursor_BindingEnergy_DFT.xlsx**: dataset describing binding energy between solvent molecules and perovskite precursors
 - **Preovskite_Dataset**: human-curated dataset obtained from the literature (reference: [The Perovskite Database](https://www.perovskitedatabase.com/))
 - **Bandgap_DFT**: DFT-calculated bandgap based on coest-effective hybrid functional approach (reference: [High-throughput Eg Database](https://pubs.acs.org/doi/10.1021/acs.jpclett.1c02244)
+- **Contributed_Kentech_Meta**: DFT-calculated binding energy data (cation-perovskite surface) as well as predicted candiates using pre-trained machine learning model
