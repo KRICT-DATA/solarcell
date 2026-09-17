@@ -228,6 +228,15 @@ class ConversionTests(unittest.TestCase):
         self.assertIsNone(devices[1]["note"])
         self.assertIsNone(devices[1]["Ef_max"])
 
+    def test_empty_jv_object_has_no_measurements_in_both_formats(self):
+        for record in ({"id": "a", "analysis": {"JV": {}}}, {"id": "b", "JV": {}}):
+            with self.subTest(record=record):
+                devices, measurements = tools.csv_rows([record])
+                self.assertEqual(devices[0]["JV_count"], 0)
+                self.assertIsNone(devices[0]["Ef_max"])
+                self.assertEqual(measurements, [])
+                self.assertNotIn("JV", tools.measurement_types(record))
+
     def test_best_jv_uses_one_measurement_and_both_schemas(self):
         records = [{"id": "a", "analysis": {"JV": [
             {"efficiency": {"value": "15"}, "fill_factor": {"value": 80}},
@@ -306,6 +315,27 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("Error:", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_malformed_latest_pointer_returns_actionable_error(self):
+        values = ["{", "null", "[]", "{}", '{"records_file":null}',
+                  '{"records_file":1}', '{"records_file":""}',
+                  '{"records_file":"../outside.json"}', '{"records_file":"/outside.json"}']
+        with tempfile.TemporaryDirectory() as temporary:
+            pointer = Path(temporary) / "latest.json"
+            for value in values:
+                with self.subTest(value=value), redirect_stderr(io.StringIO()) as stderr:
+                    pointer.write_text(value, encoding="utf-8")
+                    result = cli.main(["csv", "--download-root", temporary])
+                    self.assertEqual(result, 1)
+                    self.assertIn("Invalid latest.json", stderr.getvalue())
+                    self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_latest_pointer_accepts_utf8_bom(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            expected = tools.write_records([{"id": "a"}], root / "run-test" / "records.json")
+            (root / "latest.json").write_text('{"records_file":"run-test/records.json"}', encoding="utf-8-sig")
+            self.assertEqual(tools.latest_records(root), expected)
 
     def test_noninteractive_download_requires_credentials_before_network(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(sys.stdin, "isatty", return_value=False), \

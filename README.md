@@ -221,6 +221,7 @@ variables or enter them at the prompts, rather than saving them in notebook cell
 | No downloadable groups | Check account permissions and whether the platform has generated archives |
 | `solarcell_tools` cannot be imported | Download the entire repository and run the command from its folder |
 | No latest download found | Run `python solarcell.py download`, or use `csv --input` with an existing device JSON file/array |
+| Invalid `latest.json` | Download again to recreate the pointer, or use `csv --input` with an existing device JSON file/array |
 | Filter returns no devices | Check `measurement_types` in an unfiltered CSV; omit `--measurement` for all devices |
 | Selected group is absent | Use a group available to your account, or omit `--groups` |
 | Export directory already exists | Choose a new `--output` path, or omit the option to create a unique directory |

@@ -238,8 +238,18 @@ def latest_records(output_root="downloads"):
     pointer = root / "latest.json"
     if not pointer.is_file():
         raise FileNotFoundError("Run 'python solarcell.py download' first, or select an existing JSON file.")
-    data = json.loads(pointer.read_text(encoding="utf-8"))
-    path = root / data["records_file"]
+    message = "Invalid latest.json. Run 'python solarcell.py download' again, or select an existing JSON file."
+    try:
+        data = json.loads(pointer.read_text(encoding="utf-8-sig"))
+    except (ValueError, UnicodeError):
+        raise ValueError(message) from None
+    relative = data.get("records_file") if isinstance(data, dict) else None
+    if not isinstance(relative, str) or not relative.strip():
+        raise ValueError(message)
+    relative = Path(relative)
+    if relative.anchor or ".." in relative.parts:
+        raise ValueError(message)
+    path = root / relative
     if not path.is_file():
         raise FileNotFoundError("The latest download is missing. Select an existing JSON file or download again.")
     return path
@@ -300,7 +310,7 @@ def _jv_entries(record):
     if jv is None:
         jv = record.get("JV", [])
     if isinstance(jv, dict):
-        return [jv]
+        return [jv] if jv else []
     if isinstance(jv, list):
         return jv
     return [] if jv is None else [jv]
