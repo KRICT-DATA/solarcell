@@ -74,12 +74,6 @@ read from the environment or the hidden prompt. Generated downloads, exports, `.
 files and notebook checkpoints are excluded from Git. A failed command exits with
 a nonzero status and prints its error to the terminal.
 
-**한국어 안내:** 저장소 전체를 내려받아 `python -m pip install -r requirements.txt`로
-설치한 뒤, `python solarcell.py download` → `python solarcell.py csv` 순서로 실행하세요.
-사이트 Account에서 발급한 API 키를 입력하면 계정에 제공되는 데이터를 내려받습니다.
-`python solarcell.py csv --measurement SEM`으로 SEM 측정이 있는 장치만 변환할 수 있으며,
-결과는 `exports` 폴더에 저장됩니다.
-
 ## API request and response
 
 ```http
