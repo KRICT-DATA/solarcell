@@ -184,10 +184,8 @@ conversion, author-name inference or scientific quality exclusion is applied.
 
 **Schema change:** the new recipe path columns replace the old hand-built `BL_*`,
 `ETL_*`, `PV_*` and `HTL_*` layout. Update downstream scripts that depend on those
-columns. The [archived CSV notebook](legacy/02_data_csv_legacy.ipynb) preserves the
-previous code for reference, including its historical dependencies and assumptions;
-it is not part of the supported workflow. New output files are named `devices.csv`
-and `jv.csv`, replacing the old default `test.csv`.
+columns. New output files are named `devices.csv` and `jv.csv`, replacing the old
+default `test.csv`. Earlier versions remain available in the Git history.
 
 ## Optional notebooks
 
