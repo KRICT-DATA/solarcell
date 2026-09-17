@@ -15,7 +15,7 @@ This repository also provides the [recipe input template](template_input.xlsx) a
 
 ## Quick start
 
-Use **Python 3.10 or later**. Download the entire repository with **Code → Download ZIP**
+Use **Python 3.8 or later**. Download the entire repository with **Code → Download ZIP**
 and extract it, or clone it:
 
 ```sh
@@ -38,29 +38,20 @@ It downloads every group available to your account. The CSV command converts the
 latest complete download and prints the folder containing **devices.csv** and **jv.csv**.
 These commands require Python and `requests`; JupyterLab and pandas are optional.
 
-### Select groups or measurements
+### Options
 
 ```sh
 # Download only selected groups (IDs must be available to your account).
 python solarcell.py download --groups 2 3
 
-# Convert devices with SEM measurements from the latest download.
-python solarcell.py csv --measurement SEM
-
 # Convert a specific existing JSON file to a new output directory.
 python solarcell.py csv --input my_records.json --output exports/my-result
-
-# Save both the full download and a separate filtered_records.json.
-python solarcell.py download --measurement SEM
 
 # Show all command options.
 python solarcell.py download --help
 python solarcell.py csv --help
 ```
 
-`--measurement` matches an exact key, ignoring case. Omit it to keep all devices.
-The latest-download pointer always refers to the **full** snapshot; to convert the
-filtered JSON, pass its printed path with `--input`, or use `csv --measurement SEM`.
 When downloading to a custom folder with `download --output-root my_downloads`,
 use `csv --download-root my_downloads` to find that folder's latest snapshot.
 
@@ -108,41 +99,32 @@ A successful response is an array of available groups, for example:
 - JSON may contain measurement values or attachment metadata. The examples do not
   separately download original SEM images or other measurement attachments.
 
-## Downloaded records and measurement filters
+## Measurement filters
 
-Each run creates an independent directory:
+Use `--measurement` to select devices with a particular measurement:
 
-```text
-downloads/
-  latest.json                         # Pointer to the latest successful full snapshot
-  run-<UTC timestamp>-<unique suffix>/
-    2.zip                             # Original group archive, retained
-    2/                                # Extracted JSON, including any archive subfolders
-    records.json                      # Full device objects in one JSON array
-    filtered_records.json             # Written only when a measurement filter is used
+```sh
+python solarcell.py csv --measurement SEM
+python solarcell.py csv --measurement JV
 ```
 
-The downloader reads JSON recursively **inside the archives extracted for this run**.
-It never scans the working directory for ZIPs or deletes unrelated archives. It stops
-on malformed records or conflicting duplicates. A failed run leaves the previous
-`latest.json` pointer intact; its partial run directory can be inspected locally.
-Repeated successful runs keep separate snapshots, so stale records are not merged in.
-
-Common record fields:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Device identifier that links a recipe with its measurements |
-| `group` | Group identifier, when present |
-| `author` | Author value supplied by the API; no hard-coded name lookup is applied |
-| `input` | Fabrication recipe, usually an ordered list of steps |
-| `analysis` | Parsed measurements, keyed by measurement type |
-| `analysisInfo` | Measurement/attachment metadata, when available |
+Omit the option to keep all devices. Keys are matched exactly, ignoring case:
+`PL` does not include `TRPL`.
 
 The `measurement_types` column lists the measurement types found for each device.
 Examples include `JV`, `UVVIS`, `XRD`, `PL`, `STABILITY`, `SEM`, `TRPL`, `GIWAXS` and `ADHESION`.
-Filters inspect non-empty entries in both `analysis` and `analysisInfo` and match
-keys exactly, ignoring case. For example, `PL` does not also match `TRPL`.
+
+To also save the matching device records as `filtered_records.json`:
+
+```sh
+python solarcell.py download --measurement SEM
+```
+
+This retains the full download alongside the filtered JSON. Convert the selected
+devices with `csv --measurement SEM`, or pass the printed JSON path with `csv --input`.
+Running `csv` without either option converts the full download.
+
+Filters inspect non-empty entries in both `analysis` and `analysisInfo` after download.
 An attachment metadata match does not guarantee parsed numeric measurements exist.
 
 ## CSV output
