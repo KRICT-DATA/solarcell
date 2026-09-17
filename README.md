@@ -49,19 +49,6 @@ Omit `--measurement` to keep all devices. Filtering runs locally after download.
 Keys are case-insensitive and matched exactly: `PL` does not include `TRPL`.
 Check the `measurement_types` column for available types.
 
-## API request
-
-```http
-POST https://solar.chemdx.org/api/v1/search
-Content-Type: application/json
-
-{"email": "<account email>", "api_key": "<API key>"}
-```
-
-The response lists available groups with `id`, `name`, and `temporaryUrl`.
-Each URL downloads a ZIP of device JSON records. Account permissions determine
-whether each archive contains the full group or its public records.
-
 ## CSV output
 
 | File | Contents |
@@ -76,9 +63,9 @@ Recipe columns use JSON paths such as `input.0.annealing.1.temperature.value`,
 replacing the old `BL_*`, `ETL_*`, `PV_*`, and `HTL_*` columns.
 Arrays in `jv.csv` are JSON strings. Both files use UTF-8 with a BOM for Excel.
 
-## Optional notebooks
+## Notebook examples
 
-For JupyterLab:
+For a step-by-step example, open the notebooks in JupyterLab:
 
 ```sh
 python -m pip install -r requirements-notebooks.txt
@@ -86,7 +73,6 @@ python -m jupyterlab
 ```
 
 Run [01_download_data.ipynb](01_download_data.ipynb), then
-[02_data_csv.ipynb](02_data_csv.ipynb). They use the same download and CSV functions
-as the Python commands. JupyterLab is optional.
+[02_data_csv.ipynb](02_data_csv.ipynb).
 
 Questions: [yealee@krict.re.kr](mailto:yealee@krict.re.kr).
