@@ -15,8 +15,8 @@ git clone https://github.com/KRICT-DATA/solarcell.git
 cd solarcell
 ```
 
-Get your API key from **Account → API KEY** on Solar.ChemDX. Use **Generate** if
-you do not have one; an existing key can be reused. If it shows **Not allowed**,
+Get your API key from **Account → API KEY** on [Solar.ChemDX.org](https://solar.chemdx.org).
+Use **Generate** if you do not have one; an existing key can be reused. If it shows **Not allowed**,
 contact the platform administrator.
 
 ```sh
