@@ -8,7 +8,7 @@ This repository also provides the [recipe input template](template_input.xlsx) a
 | File | Purpose |
 | --- | --- |
 | [solarcell.py](solarcell.py) | Run downloads and CSV conversion directly with Python |
-| [solarcell_tools.py](solarcell_tools.py) | Shared, tested download and conversion functions |
+| [solarcell_tools.py](solarcell_tools.py) | Shared download and conversion functions |
 | [requirements.txt](requirements.txt) | Dependencies for the Python commands (`requests`) |
 | [template_input.xlsx](template_input.xlsx) | Template for entering device fabrication recipes |
 | [ExternalData](ExternalData/README.md) | Contributed and calculated reference data |
@@ -224,16 +224,5 @@ variables or enter them at the prompts, rather than saving them in notebook cell
 | Selected group is absent | Use a group available to your account, or omit `--groups` |
 | Export directory already exists | Choose a new `--output` path, or omit the option to create a unique directory |
 | Credentials required in a non-interactive session | Set `SOLARCELL_EMAIL` and `SOLARCELL_API_KEY` in the environment |
-
-## Development checks
-
-```sh
-python -m unittest discover -s tests -v
-```
-
-The tests use synthetic records and mocked HTTP responses; they do not need a real
-API key or contact the live service. The notebook cell check runs when pandas is
-installed and is skipped in a core-only environment. Downloaded platform data should
-remain outside source control.
 
 Questions or assistance: [yealee@krict.re.kr](mailto:yealee@krict.re.kr).
