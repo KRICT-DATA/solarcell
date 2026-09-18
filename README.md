@@ -40,6 +40,10 @@ For automated runs, set `SOLARCELL_EMAIL` and `SOLARCELL_API_KEY`.
 
 ## Measurement filters
 
+Choose a measurement key for `--measurement`:
+
+`JV`, `UVVIS`, `XRD`, `PL`, `STABILITY`, `SEM`, `TRPL`, `GIWAXS`, `GIWAXS2D`, `ADHESION`.
+
 ```sh
 python solarcell.py csv --measurement SEM
 python solarcell.py csv --measurement JV
@@ -47,7 +51,9 @@ python solarcell.py csv --measurement JV
 
 Omit `--measurement` to keep all devices. Filtering runs locally after download.
 Keys are case-insensitive and matched exactly: `PL` does not include `TRPL`.
-Check the `measurement_types` column for available types.
+
+The `measurement_types` column in `devices.csv` lists the measurements present
+for each device, separated by semicolons (for example, `JV;SEM`).
 
 ## CSV output
 
