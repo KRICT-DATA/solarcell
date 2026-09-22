@@ -10,6 +10,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
@@ -144,11 +145,38 @@ def extract_archive(archive, destination):
 
 
 def load_records(paths):
-    """Read device objects or merged arrays; reject conflicting duplicates."""
+    """Read JSON files or a run/group folder; reject conflicting duplicates.
+
+    Prefer a run's records.json when present. Otherwise read its numeric group
+    folders, excluding optional filtered output stored beside those folders.
+    """
     if isinstance(paths, (str, Path)):
         paths = [paths]
+    json_paths = []
+    for path in map(Path, paths):
+        if not path.is_dir():
+            json_paths.append(path)
+            continue
+        if (path / "latest.json").is_file():
+            raise ValueError("Select a run or group folder, not the downloads root.")
+        merged = path / "records.json"
+        if merged.is_file():
+            json_paths.append(merged)
+            continue
+        group_folders = sorted(
+            child for child in path.iterdir()
+            if child.is_dir() and re.fullmatch(r"[0-9]+", child.name)
+        )
+        if group_folders:
+            found = [item for folder in group_folders for item in folder.rglob("*.json")]
+        else:
+            found = [item for item in path.rglob("*.json")
+                     if item.name not in {"latest.json", "filtered_records.json"}]
+        if not found:
+            raise ValueError(f"No device JSON files found in folder: {path}")
+        json_paths.extend(found)
     records, seen = [], {}
-    for path in sorted(map(Path, paths)):
+    for path in sorted(json_paths):
         try:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
         except (ValueError, OSError) as exc:
@@ -189,13 +217,90 @@ def write_records(records, path):
     return path
 
 
-def download_dataset(email, api_key, output_root="downloads", group_ids=None):
-    """Create one isolated snapshot. Publish the latest pointer only after success."""
+def is_all_selection(value):
+    """Recognize explicit ALL selections and the legacy None spelling."""
+    return value is None or (isinstance(value, str) and value.strip().upper() == "ALL")
+
+
+def normalize_measurements(measurement):
+    """Return uppercase keys, or None for ALL; accept a string or key collection."""
+    if is_all_selection(measurement):
+        return None
+    message = "Use 'ALL', one measurement key, or a non-empty list such as ['JV', 'PL']."
+    if isinstance(measurement, str):
+        values = [measurement]
+    elif isinstance(measurement, (list, tuple, set, frozenset)):
+        values = measurement
+    else:
+        raise ValueError(message)
+    keys = set()
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError(message)
+        for key in value.split(","):
+            key = key.strip().upper()
+            if not key:
+                raise ValueError(message)
+            keys.add(key)
+    if not keys:
+        raise ValueError(message)
+    if "ALL" in keys:
+        if len(keys) != 1:
+            raise ValueError("Use 'ALL' alone, or select specific measurement keys; do not combine them.")
+        return None
+    return frozenset(keys)
+
+
+def _write_selected_group(source_folder, paths, destination, measurements):
+    """Save selected device JSON with the archive's relative paths and containers."""
+    written = False
+    for path in paths:
+        # These source files were already validated together by load_records().
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        records = data if isinstance(data, list) else [data]
+        selected = filter_records(records, measurements)
+        if selected:
+            write_records(selected if isinstance(data, list) else selected[0],
+                          destination / path.relative_to(source_folder))
+            written = True
+    if not written:
+        # An explicit empty group remains readable by the CSV workflow.
+        write_records([], destination / "records.json")
+
+
+def download_dataset(email, api_key, output_root="downloads", group_ids="ALL", save_mode="both",
+                     measurement="ALL"):
+    """Create a snapshot, publishing the latest pointer only after success.
+
+    both: save group JSON and records.json (the default).
+    grouped: save group JSON without a merged file at the run root.
+    merged: save only records.json.
+
+    Select devices with any requested measurement and retain only those
+    measurement fields plus device/recipe metadata. ALL retains full records.
+    Original ZIPs are kept only for ALL with both/grouped; otherwise the original
+    downloads are temporary. No additional filtered_records.json is created.
+
+    Return records.json for both/merged, or the run folder for grouped. All
+    returned paths can be passed directly to load_records().
+    group_ids="ALL" selects every available group; None remains compatible.
+    """
+    if save_mode not in ("both", "grouped", "merged"):
+        raise ValueError("save_mode must be 'both', 'grouped', or 'merged'.")
+    measurements = normalize_measurements(measurement)
+    selected = None
+    if not is_all_selection(group_ids):
+        if isinstance(group_ids, str):
+            raise ValueError("Set group_ids to 'ALL' or a list of group IDs such as [2, 3].")
+        selected = {str(gid).strip() for gid in group_ids}
+        if any(gid.upper() == "ALL" for gid in selected):
+            if len(selected) != 1:
+                raise ValueError("Use 'ALL' alone, or select specific group IDs; do not combine them.")
+            selected = None
     output_root = Path(output_root)
     with requests.Session() as session:
         groups = search_groups(session, email, api_key)
-        if group_ids is not None:
-            selected = {str(gid) for gid in group_ids}
+        if selected is not None:
             available = {str(group["id"]) for group in groups}
             if selected - available:
                 raise ValueError("Some selected groups are absent from this account's API response.")
@@ -206,6 +311,7 @@ def download_dataset(email, api_key, output_root="downloads", group_ids=None):
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_dir = Path(tempfile.mkdtemp(prefix=f"run-{stamp}-", dir=output_root))
         json_paths = []
+        group_sources = []
 
         def refresh(gid):
             fresh = search_groups(session, email, api_key)
@@ -214,26 +320,45 @@ def download_dataset(email, api_key, output_root="downloads", group_ids=None):
                 raise DownloadError(f"Group {gid} is no longer available to this account.")
             return match
 
-        for group in groups:
-            gid = str(group["id"])
-            print(f"Downloading group {gid} ({group.get('name', '')})...")
-            archive = download_archive(session, group, run_dir / f"{gid}.zip", refresh)
-            folder = extract_archive(archive, run_dir / gid)
-            paths = sorted(folder.rglob("*.json"))
-            if not paths:
-                raise DownloadError(f"Group {gid}: the archive contains no device JSON files.")
-            json_paths.extend(paths)
-        records = load_records(json_paths)
-        if not records:
-            raise DownloadError("The downloaded archives contain no device records.")
-        records_file = write_records(records, run_dir / "records.json")
+        with ExitStack() as temporary_files:
+            working_dir = run_dir
+            if save_mode == "merged" or measurements is not None:
+                working_dir = Path(temporary_files.enter_context(
+                    tempfile.TemporaryDirectory(prefix=".download-", dir=run_dir)
+                ))
+            for group in groups:
+                gid = str(group["id"])
+                print(f"Downloading group {gid} ({group.get('name', '')})...")
+                archive = download_archive(session, group, working_dir / f"{gid}.zip", refresh)
+                folder = extract_archive(archive, working_dir / gid)
+                paths = sorted(folder.rglob("*.json"))
+                if not paths:
+                    raise DownloadError(f"Group {gid}: the archive contains no device JSON files.")
+                json_paths.extend(paths)
+                group_sources.append((gid, folder, paths))
+            # Validate every mode before publishing, including grouped-only runs.
+            records = load_records(json_paths)
+            if not records:
+                raise DownloadError("The downloaded archives contain no device records.")
+            total = len(records)
+            records = filter_records(records, measurements)
+            if measurements is not None and save_mode != "merged":
+                for gid, folder, paths in group_sources:
+                    _write_selected_group(folder, paths, run_dir / gid, measurements)
+            if save_mode == "grouped":
+                records_source = run_dir
+                pointer = {"records_dir": run_dir.name}
+            else:
+                records_source = write_records(records, run_dir / "records.json")
+                pointer = {"records_file": f"{run_dir.name}/records.json"}
         # This local pointer contains no API key or signed URLs.
-        write_records({"records_file": f"{run_dir.name}/records.json"}, output_root / "latest.json")
-        print(f"Saved {len(records)} devices to {records_file}")
-        return records_file
+        write_records(pointer, output_root / "latest.json")
+        print(f"Saved {len(records)} of {total} devices to {records_source} (save_mode={save_mode})")
+        return records_source
 
 
 def latest_records(output_root="downloads"):
+    """Return the latest complete JSON file or grouped run folder."""
     root = Path(output_root)
     pointer = root / "latest.json"
     if not pointer.is_file():
@@ -243,14 +368,19 @@ def latest_records(output_root="downloads"):
         data = json.loads(pointer.read_text(encoding="utf-8-sig"))
     except (ValueError, UnicodeError):
         raise ValueError(message) from None
-    relative = data.get("records_file") if isinstance(data, dict) else None
+    keys = [key for key in ("records_file", "records_dir") if isinstance(data, dict) and key in data]
+    if len(keys) != 1:
+        raise ValueError(message)
+    source_key = keys[0]
+    relative = data[source_key]
     if not isinstance(relative, str) or not relative.strip():
         raise ValueError(message)
     relative = Path(relative)
-    if relative.anchor or ".." in relative.parts:
+    if not relative.parts or relative.anchor or ".." in relative.parts:
         raise ValueError(message)
     path = root / relative
-    if not path.is_file():
+    exists = path.is_dir() if source_key == "records_dir" else path.is_file()
+    if not exists:
         raise FileNotFoundError("The latest download is missing. Select an existing JSON file or download again.")
     return path
 
@@ -261,19 +391,35 @@ def measurement_types(record):
     for field in ("analysis", "analysisInfo"):
         data = record.get(field)
         if isinstance(data, dict):
-            result.update(str(key).upper() for key, value in data.items() if value)
+            result.update(str(key).strip().upper() for key, value in data.items() if value)
     if record.get("JV"):  # previous merge_json_recipes_JV.json format
         result.add("JV")
     return sorted(result)
 
 
-def filter_records(records, measurement=None):
-    if measurement is None:
+def filter_records(records, measurement="ALL"):
+    """Keep any matching device and only selected measurements, preserving metadata.
+
+    Case-insensitive exact matching applies to analysis, analysisInfo and legacy
+    top-level JV. Source records are not modified. ALL preserves every field.
+    """
+    measurements = normalize_measurements(measurement)
+    if measurements is None:
         return list(records)
-    measurement = measurement.strip().upper()
-    if not measurement:
-        raise ValueError("Set measurement to a key such as SEM, or use None for all records.")
-    return [record for record in records if measurement in measurement_types(record)]
+    result = []
+    for record in records:
+        if not measurements.intersection(measurement_types(record)):
+            continue
+        selected = dict(record)
+        for field in ("analysis", "analysisInfo"):
+            if field in record:
+                data = record[field]
+                selected[field] = {key: value for key, value in data.items()
+                                   if str(key).strip().upper() in measurements} if isinstance(data, dict) else {}
+        if "JV" not in measurements:
+            selected.pop("JV", None)
+        result.append(selected)
+    return result
 
 
 def _flatten(value, prefix, output, expand_lists=False):
@@ -371,8 +517,31 @@ def _write_csv(rows, path, first_columns):
                              if isinstance(value, (list, dict)) else value for key, value in row.items()})
 
 
+def _write_measurements_csv(records, path):
+    """Write one device/type row, preserving measurement data and attachment metadata."""
+    columns = ["id", "group", "measurement_type", "analysis_json", "analysis_info_json", "legacy_jv_json"]
+    count = 0
+    with Path(path).open("w", newline="", encoding="utf-8-sig") as output:
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        for record in records:
+            for kind in measurement_types(record):
+                row = {"id": record["id"], "group": record.get("group"), "measurement_type": kind}
+                for field, column in (("analysis", "analysis_json"), ("analysisInfo", "analysis_info_json")):
+                    data = record.get(field)
+                    selected = {key: value for key, value in data.items()
+                                if str(key).strip().upper() == kind} if isinstance(data, dict) else {}
+                    row[column] = json.dumps(selected, ensure_ascii=False) if selected else ""
+                if kind == "JV" and "JV" in record:
+                    row["legacy_jv_json"] = json.dumps(record["JV"], ensure_ascii=False)
+                writer.writerow(row)
+                count += 1
+    return count
+
+
 def export_csv(records, output_dir="exports"):
-    """Export a new directory; keep previous exports intact, including on empty input."""
+    """Write devices.csv, jv.csv and measurements.csv into a new output directory."""
+    records = list(records)
     output_dir = Path(output_dir)
     devices, measurements = csv_rows(records)
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -383,4 +552,6 @@ def export_csv(records, output_dir="exports"):
     _write_csv(measurements, output_dir / "jv.csv", [
         "id", "group", "jv_index", "efficiency", "fill_factor", "jsc", "voc",
     ])
-    return {"devices": len(devices), "jv_measurements": len(measurements), "output_dir": output_dir}
+    measurement_rows = _write_measurements_csv(records, output_dir / "measurements.csv")
+    return {"devices": len(devices), "jv_measurements": len(measurements),
+            "measurement_rows": measurement_rows, "output_dir": output_dir}
